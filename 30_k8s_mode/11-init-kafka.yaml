@@ -1,0 +1,25 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: init-kafka
+spec:
+  template:
+    spec:
+      containers:
+        - name: init-kafka
+          image: apache/kafka:3.9.0
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "⏳ Esperando a que Kafka esté listo..."
+              # Un sleep simple. En producción se usarían initContainers o probe loops.
+              sleep 10
+              
+              echo "🚀 Creando tópicos..."
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic flight-delay-ml-request --replication-factor 1 --partitions 1
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic flight-delay-ml-response --replication-factor 1 --partitions 1
+              
+              echo "✅ Listando tópicos:"
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list
+      restartPolicy: OnFailure

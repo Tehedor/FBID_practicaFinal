@@ -115,9 +115,74 @@ def total_flights_chart():
 @app.route("/airplanes")
 @app.route("/airplanes/")
 def search_airplanes():
-  # ... (Tu código original de search_airplanes va aquí tal cual) ...
-  # He omitido el cuerpo largo para ahorrar espacio, pero NO LO BORRES
-  return "Please keep original code here" 
+
+  search_config = [
+    {'field': 'TailNum', 'label': 'Tail Number'},
+    {'field': 'Owner', 'sort_order': 0},
+    {'field': 'OwnerState', 'label': 'Owner State'},
+    {'field': 'Manufacturer', 'sort_order': 1},
+    {'field': 'Model', 'sort_order': 2},
+    {'field': 'ManufacturerYear', 'label': 'MFR Year'},
+    {'field': 'SerialNumber', 'label': 'Serial Number'},
+    {'field': 'EngineManufacturer', 'label': 'Engine MFR', 'sort_order': 3},
+    {'field': 'EngineModel', 'label': 'Engine Model', 'sort_order': 4}
+  ]
+
+  # Pagination parameters
+  start = request.args.get('start') or 0
+  start = int(start)
+  end = request.args.get('end') or config.AIRPLANE_RECORDS_PER_PAGE
+  end = int(end)
+
+  # Navigation path and offset setup
+  nav_path = predict_utils.strip_place(request.url)
+  nav_offsets = predict_utils.get_navigation_offsets(start, end, config.AIRPLANE_RECORDS_PER_PAGE)
+
+  print("nav_path: [{}]".format(nav_path))
+  print(json.dumps(nav_offsets))
+
+  # Build the base of our elasticsearch query
+  query = {
+    'query': {
+      'bool': {
+        'must': []}
+    },
+    'sort': [
+      {'Owner': {'order': 'asc'} },
+      # {'Manufacturer': {'order': 'asc', 'ignore_unmapped' : True} },
+      # {'Model': {'order': 'asc', 'ignore_unmapped': True} },
+      # {'EngineManufacturer': {'order': 'asc', 'ignore_unmapped' : True} },
+      # {'EngineModel': {'order': 'asc', 'ignore_unmapped': True} },
+      # {'TailNum': {'order': 'asc', 'ignore_unmapped' : True} },
+      '_score'
+    ],
+    'from': start,
+    'size': config.AIRPLANE_RECORDS_PER_PAGE
+  }
+
+  arg_dict = {}
+  for item in search_config:
+    field = item['field']
+    value = request.args.get(field)
+    print(field, value)
+    arg_dict[field] = value
+    if value:
+      query['query']['bool']['must'].append({'match': {field: value}})
+
+  # Query elasticsearch, process to get records and count
+  results = elastic.search(query)
+  airplanes, airplane_count = predict_utils.process_search(results)
+
+  # Persist search parameters in the form template
+  return render_template(
+    'all_airplanes.html',
+    search_config=search_config,
+    args=arg_dict,
+    airplanes=airplanes,
+    airplane_count=airplane_count,
+    nav_path=nav_path,
+    nav_offsets=nav_offsets,
+  )
 
 @app.route("/airplanes/chart/manufacturers.json")
 def airplane_manufacturers_chart():
@@ -125,15 +190,31 @@ def airplane_manufacturers_chart():
   return json.dumps(mfr_chart)
 
 @app.route("/airplane/<tail_number>")
+@app.route("/airplane/flights/<tail_number>")
 def flights_per_airplane(tail_number):
-  flights = client.agile_data_science.flights_per_airplane.find_one({'TailNum': tail_number})
-  return render_template('flights_per_airplane.html', flights=flights, tail_number=tail_number)
+  flights = client.agile_data_science.flights_per_airplane.find_one(
+    {'TailNum': tail_number}
+  )
+  return render_template(
+    'flights_per_airplane.html',
+    flights=flights,
+    tail_number=tail_number
+  )
 
 @app.route("/airline/<carrier_code>")
 def airline(carrier_code):
-  airline_summary = client.agile_data_science.airlines.find_one({'CarrierCode': carrier_code})
-  airline_airplanes = client.agile_data_science.airplanes_per_carrier.find_one({'Carrier': carrier_code})
-  return render_template('airlines.html', airline_summary=airline_summary, airline_airplanes=airline_airplanes, carrier_code=carrier_code)
+  airline_summary = client.agile_data_science.airlines.find_one(
+    {'CarrierCode': carrier_code}
+  )
+  airline_airplanes = client.agile_data_science.airplanes_per_carrier.find_one(
+    {'Carrier': carrier_code}
+  )
+  return render_template(
+    'airlines.html',
+    airline_summary=airline_summary,
+    airline_airplanes=airline_airplanes,
+    carrier_code=carrier_code
+  )
 
 @app.route("/")
 @app.route("/airlines")
@@ -141,10 +222,78 @@ def airlines():
   airlines = client.agile_data_science.airplanes_per_carrier.find()
   return render_template('all_airlines.html', airlines=airlines)
 
+
 @app.route("/flights/search")
+@app.route("/flights/search/")
 def search_flights():
-  # ... (Tu código original de search_flights va aquí tal cual) ...
-  return "Please keep original code here"
+
+  # Search parameters
+  carrier = request.args.get('Carrier')
+  flight_date = request.args.get('FlightDate')
+  origin = request.args.get('Origin')
+  dest = request.args.get('Dest')
+  tail_number = request.args.get('TailNum')
+  flight_number = request.args.get('FlightNum')
+
+  # Pagination parameters
+  start = request.args.get('start') or 0
+  start = int(start)
+  end = request.args.get('end') or config.RECORDS_PER_PAGE
+  end = int(end)
+
+  # Navigation path and offset setup
+  nav_path = predict_utils.strip_place(request.url)
+  nav_offsets = predict_utils.get_navigation_offsets(start, end, config.RECORDS_PER_PAGE)
+
+  # Build the base of our elasticsearch query
+  query = {
+    'query': {
+      'bool': {
+        'must': []}
+    },
+    'sort': [
+      {'FlightDate': {'order': 'asc', 'ignore_unmapped' : True} },
+      {'DepTime': {'order': 'asc', 'ignore_unmapped' : True} },
+      {'Carrier': {'order': 'asc', 'ignore_unmapped' : True} },
+      {'FlightNum': {'order': 'asc', 'ignore_unmapped' : True} },
+      '_score'
+    ],
+    'from': start,
+    'size': config.RECORDS_PER_PAGE
+  }
+
+  # Add any search parameters present
+  if carrier:
+    query['query']['bool']['must'].append({'match': {'Carrier': carrier}})
+  if flight_date:
+    query['query']['bool']['must'].append({'match': {'FlightDate': flight_date}})
+  if origin:
+    query['query']['bool']['must'].append({'match': {'Origin': origin}})
+  if dest:
+    query['query']['bool']['must'].append({'match': {'Dest': dest}})
+  if tail_number:
+    query['query']['bool']['must'].append({'match': {'TailNum': tail_number}})
+  if flight_number:
+    query['query']['bool']['must'].append({'match': {'FlightNum': flight_number}})
+
+  # Query elasticsearch, process to get records and count
+  results = elastic.search(query)
+  flights, flight_count = predict_utils.process_search(results)
+
+  # Persist search parameters in the form template
+  return render_template(
+    'search.html',
+    flights=flights,
+    flight_date=flight_date,
+    flight_count=flight_count,
+    nav_path=nav_path,
+    nav_offsets=nav_offsets,
+    carrier=carrier,
+    origin=origin,
+    dest=dest,
+    tail_number=tail_number,
+    flight_number=flight_number
+    )
 
 @app.route("/delays")
 def delays():

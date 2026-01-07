@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-submit
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spark-submit
+  template:
+    metadata:
+      labels:
+        app: spark-submit
+    spec:
+      # Opcional: initContainer para esperar a Kafka/Spark Master
+      initContainers:
+        - name: wait-for-kafka
+          image: busybox
+          command: ['sh', '-c', 'until nc -z kafka 9092; do echo waiting for kafka; sleep 2; done;']
+      containers:
+        - name: spark-submit
+          # IMPORTANTE: Reemplaza esto con tu imagen que contenga el JAR y modelos
+          image: apache/spark:3.5.3 
+          workingDir: /app
+          command: [
+            "/opt/spark/bin/spark-submit",
+            "--master", "spark://spark-master:7077",
+            "--packages", "org.mongodb.spark:mongo-spark-connector_2.12:10.4.1,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3",
+            "--class", "es.upm.dit.ging.predictor.MakePrediction",
+            "target/scala-2.12/flight_prediction_2.12-0.1.jar" # Asume que el JAR está aquí dentro de la imagen
+          ]
+          env:
+            - name: SPARK_MASTER
+              value: "spark://spark-master:7077"
+            - name: BASE_PATH
+              value: "/app/"
+            - name: KAFKA_URL
+              value: "kafka:9092"
+            - name: MONGO_URL
+              value: "mongodb://mongo:27017"
+          # Si usas Minikube y quieres montar código local (no recomendado para prod):
+          volumeMounts:
+             - name: app-code
+               mountPath: /app
+      volumes:
+        - name: app-code
+          hostPath:
+            # CAMBIA ESTO A TU RUTA ABSOLUTA LOCAL
+            path: /ruta/absoluta/a/tu/proyecto/practica_creativa/flight_prediction
+            type: Directory

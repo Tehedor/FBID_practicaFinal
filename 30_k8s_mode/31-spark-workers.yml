@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: spark-worker
+  template:
+    metadata:
+      labels:
+        app: spark-worker
+    spec:
+      containers:
+        - name: spark-worker
+          image: apache/spark:3.5.3
+          command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077"]
+          ports:
+            - containerPort: 8080 # WebUI del worker
+          env:
+            - name: SPARK_WORKER_WEBUI_PORT
+              value: "8080"
+          # Aquí es donde necesitarías montar el volumen de los modelos si no están en la imagen
+          # volumeMounts:
+          #   - name: models-volume
+          #     mountPath: /app/models

@@ -1,0 +1,47 @@
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: python-app
+spec:
+  type: LoadBalancer # O NodePort si no tienes LoadBalancer
+  ports:
+    - port: 5001
+      targetPort: 5001
+      nodePort: 30001 # Opcional: para acceder desde localhost:30001
+  selector:
+    app: python-app
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: python-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: python-app
+  template:
+    metadata:
+      labels:
+        app: python-app
+    spec:
+      containers:
+        - name: python-app
+          # DEBES CONSTRUIR ESTA IMAGEN
+          image: mi-usuario/python-flight-app:latest 
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5001
+          env:
+            - name: MONGO_HOST
+              value: "mongo"
+            - name: MONGO_PORT
+              value: "27017"
+            - name: KAFKA_HOST
+              value: "kafka"
+            - name: KAFKA_PORT
+              value: "9092"
+            - name: PROJECT_HOME
+              value: "/app"
