@@ -1,0 +1,16 @@
+services:
+  mongodb:
+    image: mongo:7.0.17 # Puedes cambiar a mongo:4.0 si tienes problemas con la versión 7.0.17
+    container_name: mongo
+    restart: always # Opcional: Para que el contenedor se reinicie automáticamente
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./practica_creativa/resources/import_distances.sh:/app/import_distances.sh
+      - ./volume_mongodb:/data/db
+      - ./practica_creativa/data:/app/data
+    # environment:
+      # Variables de entorno opcionales para la configuración inicial
+      # - MONGO_INITDB_ROOT_USERNAME: user
+      # - MONGO_INITDB_ROOT_PASSWORD: password
+    working_dir: /app
