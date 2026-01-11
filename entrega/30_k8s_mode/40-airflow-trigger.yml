@@ -1,0 +1,49 @@
+---
+# Airflow Trigger Job - Lanza el DAG flight_prediction_training
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: airflow-trigger
+  namespace: default
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        app: airflow-trigger
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: airflow-trigger
+        image: curlimages/curl:8.7.1
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            echo "⏳ Esperando a que Airflow Webserver esté listo (http://airflow-webserver:8080/api/v1/health)..."
+            
+            # Esperar hasta que el webserver responda
+            while ! curl -s -f -H "accept: application/json" -o /dev/null http://airflow-webserver:8080/api/v1/health; do
+              echo "   ... reintentando en 5s ..."
+              sleep 5
+            done
+            
+            echo "✅ Webserver detectado. Esperando 10s extra..."
+            sleep 10
+
+            ts=$(date +%s)
+            
+            echo "🔌 Despausando DAG flight_prediction_training..."
+            curl -v -X PATCH http://airflow-webserver:8080/api/v1/dags/flight_prediction_training \
+              -H "Content-Type: application/json" \
+              -u airflow:airflow \
+              -d "{\"is_paused\": false}"
+            
+            echo "🚀 Lanzando DAG flight_prediction_training..."
+            curl -v -X POST http://airflow-webserver:8080/api/v1/dags/flight_prediction_training/dagRuns \
+              -H "Content-Type: application/json" \
+              -u airflow:airflow \
+              -d "{\"dag_run_id\":\"manual__${ts}\",\"conf\":{}}"
+            
+            echo "✅ Trigger completado."

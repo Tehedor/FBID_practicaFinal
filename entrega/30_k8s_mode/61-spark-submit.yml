@@ -1,0 +1,122 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: flight-prediction-local-pv
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /home/tehe/Work/FBID/practica_prediccion-vuelos/practica_containers/30_k8s_mode/flight_prediction
+    type: Directory
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: flight-prediction-filestore-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: spark-submit-predict
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+
+      containers:
+      - name: spark-submit
+        image: stehedor/spark-custom:latest
+
+        env:
+        # --------- RUTAS Y DIRECTORIOS ---------
+        - name: HOME
+          value: /opt/airflow
+
+        - name: SPARK_LOCAL_DIRS
+          value: /opt/spark/work
+
+        # --------- VARIABLES DE TU APP (CLAVE) ---------
+        - name: SPARK_MASTER
+          value: spark://spark-master:7077
+
+        - name: BASE_PATH
+          value: /opt/airflow/flight_prediction
+
+        - name: KAFKA_URL
+          value: kafka:9092
+
+        - name: MONGO_URL
+          value: mongodb://mongo:27017
+
+        # --------- DESACTIVAR KERBEROS / JAAS ---------
+        - name: HADOOP_SECURITY_AUTHENTICATION
+          value: simple
+
+        - name: HADOOP_USER_NAME
+          value: root
+
+        - name: USER
+          value: root
+
+        - name: LOGNAME
+          value: root
+
+        - name: SPARK_USER
+          value: root
+
+        # --------- OPCIONES JVM ---------
+        - name: SPARK_SUBMIT_OPTS
+          value: >
+            -Divy.home=/opt/spark/ivy
+            -Divy.cache.dir=/opt/spark/ivy
+            -Dhadoop.security.authentication=simple
+            -Djava.security.auth.login.config=/dev/null
+
+        # --------- COMANDO SPARK ---------
+        command:
+          - /opt/spark/bin/spark-submit
+          - --master
+          - spark://spark-master:7077
+          - --packages
+          - org.mongodb.spark:mongo-spark-connector_2.12:10.4.1,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3
+          - --class
+          - es.upm.dit.ging.predictor.MakePrediction
+          - /opt/airflow/flight_prediction/target/scala-2.12/flight_prediction_2.12-0.1.jar
+
+        volumeMounts:
+        - name: airflow-filestore
+          mountPath: /opt/airflow
+
+        - name: flight-prediction-filestore
+          mountPath: /opt/airflow/flight_prediction
+
+        - name: spark-work-dir
+          mountPath: /opt/spark/work
+
+        - name: spark-ivy-dir
+          mountPath: /opt/spark/ivy
+
+      volumes:
+      - name: airflow-filestore
+        persistentVolumeClaim:
+          claimName: airflow-filestore-pvc
+
+      - name: flight-prediction-filestore
+        persistentVolumeClaim:
+          claimName: flight-prediction-filestore-pvc
+
+      - name: spark-work-dir
+        emptyDir: {}
+
+      - name: spark-ivy-dir
+        emptyDir: {}

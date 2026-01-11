@@ -1,0 +1,86 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: python-app
+  labels:
+    app: python-app
+spec:
+  type: LoadBalancer # O NodePort si estás en on-prem/Minikube sin metallb
+  selector:
+    app: python-app
+  ports:
+  - protocol: TCP
+    port: 80         # Puerto al que llamas desde fuera
+    targetPort: 5001 # Puerto interno de Flask
+    nodePort: 30501  # Opcional, fíjalo solo si es necesario
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: python-app
+  labels:
+    app: python-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: python-app
+  template:
+    metadata:
+      labels:
+        app: python-app
+    spec:
+      containers:
+      - name: python-app
+        image: stehedor/python_app_flight:latest
+        imagePullPolicy: Always
+        
+        # --- AQUÍ ESTÁN LAS VARIABLES DE ENTORNO ---
+        env:
+        # 1. Kafka (nombre del servicio K8s)
+        - name: KAFKA_HOST
+          value: "kafka"
+        - name: KAFKA_PORT
+          value: "9092"
+          
+        # 2. Mongo (nombre del servicio K8s)
+        - name: MONGO_HOST
+          value: "mongo"
+        - name: MONGO_PORT
+          value: "27017"
+          
+        # 3. Elasticsearch (¡OJO! ¿Tienes este servicio creado?)
+        # Si no tienes servicio de Elastic, esto fallará. 
+        # Asumo que se llamará 'elasticsearch'.
+        - name: ELASTIC_URL
+          value: "http://elasticsearch:9200"
+          
+        # 4. Logs de Python (para verlos al instante con kubectl logs)
+        - name: PYTHONUNBUFFERED
+          value: "1"
+
+        ports:
+        - containerPort: 5001
+        
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"  # Subido un poco por si Spark/Pandas consumen
+            cpu: "1000m"
+            
+        # He relajado un poco los probes para dar tiempo a conectar con Kafka/Mongo
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 5001
+          initialDelaySeconds: 40
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 5001
+          initialDelaySeconds: 20
+          periodSeconds: 10

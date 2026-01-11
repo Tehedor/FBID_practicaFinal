@@ -1,0 +1,56 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flight-prediction-job
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      containers:
+      - name: spark-submit-client
+        image: stehedor/spark-custom_v2:latest
+        imagePullPolicy: IfNotPresent
+        
+        env:
+        - name: BASE_PATH 
+          value: "/data"
+        - name: KAFKA_URL
+          value: "kafka:9092"
+        - name: MONGO_URL
+          value: "mongodb://mongo:27017"
+
+        volumeMounts:
+        - name: jar-volume
+          mountPath: /app/jar
+        - name: project-root-volume
+          mountPath: /data
+          
+        command:
+        - "/bin/bash"
+        - "-c"
+        - |
+          echo "--> Configurando caché Ivy en /tmp..."
+          echo "--> Conectando a Master: spark://spark-cluster-master:7077"
+          
+          /opt/spark/bin/spark-submit \
+          --master spark://spark-cluster-master:7077 \
+          --deploy-mode client \
+          --conf spark.jars.ivy=/tmp/.ivy2 \
+          --packages org.mongodb.spark:mongo-spark-connector_2.12:10.4.1,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3 \
+          --class es.upm.dit.ging.predictor.MakePrediction \
+          --conf spark.driver.host=$(hostname -i) \
+          --conf spark.driver.bindAddress=0.0.0.0 \
+          /app/jar/flight_prediction_2.12-0.1.jar
+          
+      restartPolicy: Never
+      
+      volumes:
+      - name: jar-volume
+        hostPath:
+          path: ${SPARK_PATH_SUBMIT_JAR}
+          type: Directory
+      # 2. La raíz del proyecto (para los modelos)
+      - name: project-root-volume
+        hostPath:
+          path: ${SPARK_PATH_SUBMIT_MODELS}
+          type: Directory

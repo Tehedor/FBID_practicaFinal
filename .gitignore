@@ -1,15 +1,16 @@
 .venv
 .vscode
 !models/.gitkeep
-models/*
+models/*.bin
 .metals
 .scala-build
-target
+**/target/streams
+**/target/config-classes
 
 .DS_Store
 .ipynb_checkpoints
 mongodb
-spark
+# spark
 hadoop
 mongo-hadoop
 lib/mongo*
@@ -42,3 +43,13 @@ data/simple_flight_delay_features.jsonl.bz2
 
 
 **/mongo/db
+**/airflow/logs
+**/airflow/models/
+**/airflow/models\ copy/
+# **/airflow/models/*.bin
+# **/airflow/models\ copy/*.bin
+*.jar
+**/target/
+*.log
+*.tar
+**.data

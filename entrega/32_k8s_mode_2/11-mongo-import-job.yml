@@ -1,0 +1,56 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mongo-import-job
+spec:
+  ttlSecondsAfterFinished: 100 
+  template:
+    spec:
+      containers:
+      - name: mongo-importer
+        image:  mongo:7.0.17
+        imagePullPolicy: IfNotPresent
+        
+        volumeMounts:
+        - name: data-volume
+          mountPath: /app/data
+          
+        command:
+        - "/bin/bash"
+        - "-c"
+        - |
+          echo "--> Esperando conexión con MongoDB en: mongo:27017"
+          
+          # Esperar hasta que MongoDB esté disponible
+          until mongosh --host mongo:27017 --eval "db.adminCommand('ping')" > /dev/null 2>&1; do
+            echo "MongoDB no está disponible aún - esperando..."
+            sleep 2
+          done
+          
+          echo "--> MongoDB conectado correctamente"
+          
+          echo "--> 1. Importando datos..."
+          # --host mongo: conecta al servicio k8s llamado 'mongo'
+          mongoimport --host mongo --port 27017 \
+            --db agile_data_science \
+            --collection origin_dest_distances \
+            --file /app/data/origin_dest_distances.jsonl
+            
+          echo "--> 2. Creando índices..."
+          mongosh --host mongo:27017 agile_data_science \
+            --eval 'db.origin_dest_distances.createIndex({Origin: 1, Dest: 1})'
+            
+          echo "--> ¡Finalizado con éxito!"
+
+      restartPolicy: Never
+      
+      # volumes:
+      # - name: data-volume
+      #   hostPath:
+      #     path: /home/tehe/Work/FBID/practica_prediccion-vuelos/practica_containers/32_k8s_mode_2/mongo/data
+      #     type: Directory
+      volumes:
+      - name: data-volume
+        hostPath:
+          path: ${MONGO_IMPORT_PATH}
+          type: Directory

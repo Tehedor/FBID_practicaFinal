@@ -1,0 +1,24 @@
+_apiVersion: v1
+kind: Pod
+metadata:
+  name: dummy-name
+spec:
+  containers:
+    - name: base
+      image: stehedor/airflow-custom:latest
+      imagePullPolicy: IfNotPresent
+      # 1. Esto inyecta las variables (DB, Redis, etc.)
+      envFrom:
+        - configMapRef:
+            name: airflow-env
+      # 2. Esto monta tu disco duro para ver los DAGs
+      volumeMounts:
+        - name: airflow-filestore
+          mountPath: /opt/airflow
+  volumes:
+    - name: airflow-filestore
+      persistentVolumeClaim:
+        claimName: airflow-filestore-pvc
+
+
+       

@@ -1,0 +1,169 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: spark-master
+spec:
+  selector:
+    app: spark-master
+  ports:
+    - name: spark
+      port: 7077
+      targetPort: 7077
+    - name: webui
+      port: 8080
+      targetPort: 8080
+---
+# apiVersion: apps/v1
+# kind: Deployment
+# metadata:
+#   name: spark-master
+# spec:
+#   replicas: 1
+#   selector:
+#     matchLabels:
+#       app: spark-master
+#   template:
+#     metadata:
+#       labels:
+#         app: spark-master
+#     spec:
+#       containers:
+#       - name: spark-master
+#         image: apache/spark:3.5.3
+#         command:
+#           - /opt/spark/sbin/start-master.sh
+#         ports:
+#           - containerPort: 7077
+#           - containerPort: 8080
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: spark-master
+spec:
+  serviceName: spark-master
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spark-master
+  template:
+    metadata:
+      labels:
+        app: spark-master
+    spec:
+      containers:
+      - name: spark-master
+        image: stehedor/spark-custom:latest
+        # image: apache/spark:3.5.3
+        command:
+          - /bin/bash
+          - -c
+          - |
+            /opt/spark/sbin/start-master.sh && \
+            tail -f /opt/spark/logs/*
+        # command:
+        #   - /opt/spark/bin/spark-class
+        #   - org.apache.spark.deploy.master.Master
+        env:
+          - name: SPARK_USER
+            value: "airflow"
+          - name: HADOOP_USER_NAME
+            value: "airflow"
+          - name: USER
+            value: "airflow"
+          # 
+          - name: SPARK_MASTER_HOST
+            value: "0.0.0.0"
+            # value: spark-master
+          - name: SPARK_MASTER_PORT
+            value: "7077"
+          - name: SPARK_MASTER_WEBUI_PORT
+            value: "8080"
+        ports:
+          - containerPort: 7077
+          - containerPort: 8080
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: spark-worker
+  template:
+    metadata:
+      labels:
+        app: spark-worker
+    spec:
+      securityContext:
+          runAsUser: 50000    # Obliga a correr como usuario 50000 (Airflow)
+          runAsGroup: 0       # Opcional: Grupo root (común en Bitnami/Apache)
+          fsGroup: 0
+      initContainers:
+      - name: fix-volume-permissions
+        image: busybox
+        # Cambiamos el dueño de los volúmenes montados al usuario 50000
+        command: ["sh", "-c", "chown -R 50000:0 /opt/spark/work /opt/spark/logs"]
+        securityContext:
+          runAsUser: 0 # Root temporal
+        volumeMounts:
+        - name: spark-work-dir
+          mountPath: /opt/spark/work
+        - name: spark-logs-dir
+          mountPath: /opt/spark/logs
+      containers:
+      - name: spark-worker
+        image: stehedor/spark-custom:latest
+        # image: apache/spark:3.5.3
+        command:
+          - /opt/spark/bin/spark-class
+          - org.apache.spark.deploy.worker.Worker
+          - spark://spark-master:7077
+        env:
+          - name: SPARK_USER
+            value: "airflow"
+          - name: USER
+            value: "airflow"
+          # Configuramos la memoria y puertos
+          - name: SPARK_WORKER_MEMORY
+            value: "4G"
+          - name: SPARK_MASTER_PORT
+            value: "7077"
+          - name: SPARK_MASTER_WEBUI_PORT
+            value: "8080"
+            
+          # IMPORTANTE: Forzamos a Spark a usar el directorio donde tenemos permisos
+          - name: SPARK_LOCAL_DIRS
+            value: "/opt/spark/work"
+          
+          # Variables de Python (ya coinciden con tu imagen)
+          - name: PYSPARK_PYTHON
+            value: "/usr/bin/python3"
+          - name: PYSPARK_DRIVER_PYTHON
+            value: "/usr/bin/python3"
+          - name: PYTHONPATH
+            value: "/opt/spark/python:/opt/spark/python/lib/py4j-0.10.9.7-src.zip"
+          # --------------------------------
+
+        volumeMounts:
+          - name: airflow-filestore
+            mountPath: /opt/airflow
+          # Montamos los volúmenes (que ya fueron corregidos por el initContainer)
+          - name: spark-work-dir
+            mountPath: /opt/spark/work
+          - name: spark-logs-dir
+            mountPath: /opt/spark/logs
+            
+      volumes:
+      - name: airflow-filestore
+        persistentVolumeClaim:
+          claimName: airflow-filestore-pvc
+      - name: spark-work-dir
+        emptyDir: {}
+      - name: spark-logs-dir
+        emptyDir: {}
+---

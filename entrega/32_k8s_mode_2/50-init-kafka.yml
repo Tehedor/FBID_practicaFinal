@@ -1,0 +1,28 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: init-kafka
+spec:
+  template:
+    spec:
+      serviceAccountName: default
+      restartPolicy: OnFailure
+      containers:
+      - name: init-kafka
+        image: apache/kafka:3.9.0
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          # 1. Esperamos un poco a que Kafka arranque bien (seguridad)
+          echo -e '⏳ Esperando a que Kafka esté listo...'
+          sleep 5 
+          
+          # 2. Creamos el tópico (usamos --if-not-exists para que no falle si reinicias)
+          echo -e '🚀 Creando tópico flight-delay-ml-request...'
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic flight-delay-ml-request --replication-factor 1 --partitions 1
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic flight-delay-ml-response --replication-factor 1 --partitions 1
+          
+          echo -e '✅ Tópico creado. Listando tópicos actuales:'
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list
+      dnsPolicy: ClusterFirst

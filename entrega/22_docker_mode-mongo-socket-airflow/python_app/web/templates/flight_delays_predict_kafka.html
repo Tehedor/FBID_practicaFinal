@@ -1,0 +1,84 @@
+{% extends "layout.html" %}
+{% block body %}
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+
+  / <a href="/flights/delays/predict_kafka">Flight Delay Prediction (Realtime Sockets)</a>
+
+  <p class="lead" style="margin: 10px; margin-left: 0px;">
+    Predicting Flight Delays with Kafka & WebSockets 🚀
+  </p>
+
+  <form id="flight_delay_classification">
+    {% for item in form_config %}
+      {% if 'label' in item %}
+        <label for="{{item['field']}}">{{item['label']}}</label>
+      {% else %}
+        <label for="{{item['field']}}">{{item['field']}}</label>
+      {% endif %}
+        <input name="{{item['field']}}" id="{{item['field']}}" style="width: 100px; margin-right: 10px;" 
+        {% if 'value' in item %}
+          value="{{item['value']}}"
+        {% endif %}
+        ></input>
+    {% endfor %}
+    <button type="button" onclick="sendPredictionRequest()" class="btn btn-xs btn-primary" style="height: 25px">Submit</button>
+  </form>
+
+  <div style="margin-top: 20px;">
+      <h4>Result: <span id="result" style="font-weight: bold; color: blue;">Waiting for input...</span></h4>
+  </div>
+
+  <script>
+    var socket = io(); // Connect to WebSocket server
+
+    function sendPredictionRequest() {
+        // 1. Get form data
+        var formData = new FormData(document.getElementById('flight_delay_classification'));
+        
+        // 2. Show loading state
+        document.getElementById("result").innerText = "Enviando a Kafka... ⏳";
+        document.getElementById("result").style.color = "orange";
+
+        // 3. Send POST request to Flask
+        fetch("/flights/delays/predict/classify_realtime", {
+            method: "POST",
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if(data.status === "OK") {
+                var uuid = data.id;
+                console.log("UUID Recibido:", uuid);
+                document.getElementById("result").innerText = "Procesando en Spark... ⚙️";
+                
+                // 4. Join the Socket Room with this UUID
+                socket.emit('join', {uuid: uuid});
+            }
+        });
+    }
+
+    // 5. Listen for the result from the server
+    socket.on('prediction_result', function(msg) {
+        console.log("Resultado recibido:", msg);
+        
+        var predictionCode = msg.Prediction;
+        var text = "";
+        var color = "green";
+
+        // Interpret prediction (adjust logic as per your model labels)
+        if (predictionCode == "1.0" || predictionCode == 1) {
+            text = "On Time / Early 🟢";
+        } else if (predictionCode == "2.0" || predictionCode == 2) {
+            text = "Slight Delay 🟡";
+            color = "#ffd700"; // Gold
+        } else {
+            text = "Severe Delay! 🔴";
+            color = "red";
+        }
+
+        var displayElement = document.getElementById("result");
+        displayElement.innerText = text;
+        displayElement.style.color = color;
+    });
+  </script>
+{% endblock %}

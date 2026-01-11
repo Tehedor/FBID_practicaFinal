@@ -1,0 +1,20 @@
+FROM apache/airflow:2.1.4
+
+# Use root to prepare directories; runtime user remains airflow from base image
+USER root
+
+ENV PROJECT_HOME=/opt/airflow
+
+# Create standard Airflow directories (mounted in k8s or used by jobs)
+RUN mkdir -p /opt/airflow/dags /opt/airflow/logs /opt/airflow/plugins \
+	/opt/airflow/resources /opt/airflow/data
+
+# Role-based startup script copied into image
+COPY start-airflow.sh /usr/local/bin/start-airflow.sh
+RUN chmod +x /usr/local/bin/start-airflow.sh
+
+# Switch back to airflow user to run services
+USER airflow
+
+# Default command delegates to role-based script
+CMD ["/usr/local/bin/start-airflow.sh"]

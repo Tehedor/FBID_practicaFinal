@@ -1,0 +1,38 @@
+
+
+FROM apache/spark:3.5.3
+
+# Use root for easier k8s volume mounts and init tasks
+USER root
+
+ARG APP_HOME=/app
+ENV APP_HOME=$APP_HOME \
+	SPARK_HOME=/opt/spark \
+	PROJECT_HOME=/opt/airflow
+
+# Minimal tooling and init. Tini ensures proper signal handling.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+	tini \
+	curl \
+	ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN pip3 install --no-cache-dir \
+    pandas \
+    numpy \
+    pymongo \
+    scikit-learn
+
+
+# Create expected directories (mounted in k8s or used by jobs)
+RUN mkdir -p /opt/airflow/dags /opt/airflow/logs /opt/airflow/plugins \
+	/opt/airflow/resources /opt/airflow/data \
+	"$APP_HOME" "$APP_HOME/models"
+
+# Role-based startup script (master/worker) copied into image
+COPY start-spark.sh /usr/local/bin/start-spark.sh
+RUN chmod +x /usr/local/bin/start-spark.sh
+
+# Default entrypoint suitable for both master and worker roles
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["/usr/local/bin/start-spark.sh"]

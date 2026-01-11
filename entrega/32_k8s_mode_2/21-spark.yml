@@ -1,0 +1,114 @@
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minikube-ingress
+  annotations:
+spec:
+  rules:
+  - host: spark-kubernetes
+    http:
+      paths:
+        - pathType: Prefix
+          path: /
+          backend:
+            service:
+              name: spark-cluster-master
+              port:
+                number: 8080
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spark-cluster-master 
+
+spec:
+  ports:
+  - name: rpc
+    port: 7077       
+    targetPort: 7077
+  - name: webui
+    port: 8080       
+    targetPort: 8080
+  selector:
+    app: spark-master
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-master
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spark-master
+  template:
+    metadata:
+      labels:
+        app: spark-master
+    spec:
+      containers:
+      - name: spark-master
+        image: stehedor/spark-custom_v2:latest 
+        imagePullPolicy: IfNotPresent
+        command:
+          - "/opt/spark/bin/spark-class"
+          - "org.apache.spark.deploy.master.Master"
+        ports:
+        - containerPort: 7077
+        - containerPort: 8080
+        env:
+        - name: SPARK_MASTER_PORT
+          value: "7077"
+        - name: SPARK_MASTER_WEBUI_PORT
+          value: "8080"
+        volumeMounts:   # <--- AÑADIR ESTO
+          - name: airflow-filestore
+            mountPath: /opt/airflow
+            readOnly: false
+      volumes:          # <--- AÑADIR ESTO
+        - name: airflow-filestore
+          persistentVolumeClaim:
+            claimName: airflow-filestore-pvc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-worker
+
+spec:
+  replicas: 2 
+  selector:
+    matchLabels:
+      app: spark-worker
+  template:
+    metadata:
+      labels:
+        app: spark-worker
+    spec:
+      containers:
+      - name: spark-worker
+        image: stehedor/spark-custom_v2:latest 
+        imagePullPolicy: IfNotPresent
+        command:
+          - "/opt/spark/bin/spark-class"
+          - "org.apache.spark.deploy.worker.Worker"
+          - "spark://spark-cluster-master:7077"
+        env:
+        - name: SPARK_WORKER_WEBUI_PORT
+          value: "8081"
+        resources:
+          requests:
+            cpu: 1000m
+            memory: 2Gi
+        volumeMounts:   # <--- AÑADIR ESTO
+          - name: airflow-filestore
+            mountPath: /opt/airflow
+            readOnly: false
+      volumes:          # <--- AÑADIR ESTO
+        - name: airflow-filestore
+          persistentVolumeClaim:
+            claimName: airflow-filestore-pvc

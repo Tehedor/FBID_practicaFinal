@@ -1,0 +1,779 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: airflow-local-pv
+spec:
+  capacity:
+    storage: 50Gi
+  accessModes:
+    - ReadWriteMany      
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /home/tehe/Work/FBID/practica_prediccion-vuelos/practica_containers/30_k8s_mode/volume-local/airflow
+    type: Directory
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: airflow-filestore-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 50Gi
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mongo-pv
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: /volume-local/mongo
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongo-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo
+spec:
+  selector:
+    app: mongo
+  ports:
+    - port: 27017
+      targetPort: 27017
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongo
+spec:
+  serviceName: mongo
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongo
+  template:
+    metadata:
+      labels:
+        app: mongo
+    spec:
+      containers:
+      - name: mongo
+        image: mongo:7.0.17
+        ports:
+          - containerPort: 27017
+        volumeMounts:
+          - name: mongo-storage
+            mountPath: /data/db
+      volumes:
+        - name: mongo-storage
+          persistentVolumeClaim:
+            claimName: mongo-pvc
+
+
+# apiVersion: v1
+# kind: PersistentVolume
+# metadata:
+#   name: kafka-local-pv
+# spec:
+#   capacity:
+#     storage: 10Gi
+#   accessModes:
+#     - ReadWriteOnce
+#   persistentVolumeReclaimPolicy: Retain
+#   hostPath:
+#     path: /data/kafka
+#     type: Directory
+# ---
+# apiVersion: v1
+# kind: PersistentVolumeClaim
+# metadata:
+#   name: kafka-pvc
+# spec:
+#   accessModes:
+#     - ReadWriteOnce
+#   resources:
+#     requests:
+#       storage: 10Gi
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+spec:
+  selector:
+    app: kafka
+  ports:
+    - port: 9092
+      targetPort: 9092
+
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+spec:
+  serviceName: kafka
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      containers:
+      - name: kafka
+        image: apache/kafka:3.9.0
+        ports:
+          - containerPort: 9092
+          - containerPort: 9093
+        env:
+          - name: KAFKA_NODE_ID
+            value: "1"
+          - name: KAFKA_PROCESS_ROLES
+            value: "broker,controller"
+          - name: KAFKA_LISTENERS
+            value: "PLAINTEXT://:9092,CONTROLLER://:9093"
+          - name: KAFKA_ADVERTISED_LISTENERS
+            value: "PLAINTEXT://kafka:9092"
+          - name: KAFKA_CONTROLLER_LISTENER_NAMES
+            value: "CONTROLLER"
+          - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+            value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+          - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+            value: "1@kafka-0.kafka:9093"
+          - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+            value: "1"
+          - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+            value: "1"
+          - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+            value: "1"
+          - name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS
+            value: "0"
+      #   volumeMounts:
+      #     - name: kafka-storage
+      #       mountPath: /var/lib/kafka/data
+      # volumes:
+      #   - name: kafka-storage
+      #     persistentVolumeClaim:
+      #       claimName: kafka-pvcapiVersion: v1
+kind: Service
+metadata:
+  name: spark-master
+spec:
+  selector:
+    app: spark-master
+  ports:
+    - name: spark
+      port: 7077
+      targetPort: 7077
+    - name: webui
+      port: 8080
+      targetPort: 8080
+---
+# apiVersion: apps/v1
+# kind: Deployment
+# metadata:
+#   name: spark-master
+# spec:
+#   replicas: 1
+#   selector:
+#     matchLabels:
+#       app: spark-master
+#   template:
+#     metadata:
+#       labels:
+#         app: spark-master
+#     spec:
+#       containers:
+#       - name: spark-master
+#         image: apache/spark:3.5.3
+#         command:
+#           - /opt/spark/sbin/start-master.sh
+#         ports:
+#           - containerPort: 7077
+#           - containerPort: 8080
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: spark-master
+spec:
+  serviceName: spark-master
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spark-master
+  template:
+    metadata:
+      labels:
+        app: spark-master
+    spec:
+      containers:
+      - name: spark-master
+        image: stehedor/spark-custom:latest
+        # image: apache/spark:3.5.3
+        command:
+          - /bin/bash
+          - -c
+          - |
+            /opt/spark/sbin/start-master.sh && \
+            tail -f /opt/spark/logs/*
+        # command:
+        #   - /opt/spark/bin/spark-class
+        #   - org.apache.spark.deploy.master.Master
+        env:
+          - name: SPARK_USER
+            value: "airflow"
+          - name: HADOOP_USER_NAME
+            value: "airflow"
+          - name: USER
+            value: "airflow"
+          # 
+          - name: SPARK_MASTER_HOST
+            value: "0.0.0.0"
+            # value: spark-master
+          - name: SPARK_MASTER_PORT
+            value: "7077"
+          - name: SPARK_MASTER_WEBUI_PORT
+            value: "8080"
+        ports:
+          - containerPort: 7077
+          - containerPort: 8080
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: spark-worker
+  template:
+    metadata:
+      labels:
+        app: spark-worker
+    spec:
+      securityContext:
+          runAsUser: 50000    # Obliga a correr como usuario 50000 (Airflow)
+          runAsGroup: 0       # Opcional: Grupo root (común en Bitnami/Apache)
+          fsGroup: 0
+      containers:
+      - name: spark-worker
+        image: stehedor/spark-custom:latest
+        # image: apache/spark:3.5.3
+        command:
+          - /opt/spark/bin/spark-class
+          - org.apache.spark.deploy.worker.Worker
+          - spark://spark-master:7077
+        env:
+          # --- AÑADE ESTAS VARIABLES PARA ARREGLAR EL LOGIN ---
+          - name: SPARK_USER
+            value: "airflow"
+          - name: HADOOP_USER_NAME
+            value: "airflow"
+          - name: USER
+            value: "airflow"
+          # ----------------------------------------------------
+          - name: SPARK_MASTER_PORT
+            value: "7077"
+          - name: SPARK_MASTER_WEBUI_PORT
+            value: "8080"
+        volumeMounts:
+          - name: airflow-filestore
+            mountPath: /opt/airflow
+          # --- AÑADIDO: Montar espacio de trabajo temporal ---
+          - name: spark-work-dir
+            mountPath: /opt/spark/work
+      volumes:
+      - name: airflow-filestore
+        persistentVolumeClaim:
+          claimName: airflow-filestore-pvc
+      # --- AÑADIDO: Definir volumen temporal ---
+      - name: spark-work-dir
+        emptyDir: {}
+---apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: airflow-postgres-pv
+  labels:
+    app: airflow-postgres
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  hostPath:
+    path: /volume-local/airflow-postgres
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: airflow-postgres-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  selector:
+    matchLabels:
+      app: airflow-postgres
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow-postgres
+spec:
+  selector:
+    app: airflow-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: airflow-postgres
+spec:
+  serviceName: airflow-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow-postgres
+  template:
+    metadata:
+      labels:
+        app: airflow-postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:13
+        env:
+          - name: POSTGRES_USER
+            value: "airflow"
+          - name: POSTGRES_PASSWORD
+            value: "airflow"
+          - name: POSTGRES_DB
+            value: "airflow"
+        ports:
+          - containerPort: 5432
+        volumeMounts:
+          - name: postgres-storage
+            mountPath: /var/lib/postgresql/data
+        livenessProbe:
+          exec:
+            command:
+              - pg_isready
+              - -U
+              - airflow
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+              - pg_isready
+              - -U
+              - airflow
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: airflow-postgres-pvc
+
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-env
+data:
+  AIRFLOW__CORE__EXECUTOR: KubernetesExecutor
+  AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+  # AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
+  # AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@airflow-postgres/airflow
+  AIRFLOW__CORE__FERNET_KEY: "LEMIyIaNoe0an_JkV5zAsTKEypRdvnEoppdRd7n6p5w="
+  AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+  AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+  AIRFLOW__API__AUTH_BACKEND: airflow.api.auth.backend.basic_auth
+  AIRFLOW_HOME: /opt/airflow
+  PROJECT_HOME: /opt/airflow
+  AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/logs
+
+  AIRFLOW__KUBERNETES__POD_TEMPLATE_FILE: /opt/airflow/pod_template.yaml
+  
+  AIRFLOW__KUBERNETES__NAMESPACE: default
+  AIRFLOW__KUBERNETES__WORKER_CONTAINER_REPOSITORY: stehedor/airflow-custom
+  AIRFLOW__KUBERNETES__WORKER_CONTAINER_TAG: latest
+  AIRFLOW__KUBERNETES__DELETE_WORKER_PODS: "true"
+  AIRFLOW__KUBERNETES__DELETE_WORKER_PODS_ON_FAILURE: "true"apiVersion: v1
+kind: Service
+metadata:
+  name: airflow-webserver
+spec:
+  type: NodePort
+  selector:
+    app: airflow-webserver
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: 30090
+
+---
+
+# airflow-webserver
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-webserver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow-webserver
+  template:
+    metadata:
+      labels:
+        app: airflow-webserver
+    spec:
+      securityContext:
+        runAsUser: 50000    # Obliga a correr como usuario 50000 (Airflow)
+        runAsGroup: 0       # Opcional: Grupo root (común en Bitnami/Apache)
+        fsGroup: 0
+      containers:
+      - name: webserver
+        image: stehedor/airflow-custom:latest
+        command: ["airflow", "webserver"]
+        ports:
+          - containerPort: 8080
+        envFrom:
+          - configMapRef:
+              name: airflow-env
+        volumeMounts:
+          - name: airflow-filestore
+            mountPath: /opt/airflow
+      volumes:
+        - name: airflow-filestore
+          persistentVolumeClaim:
+            claimName: airflow-filestore-pvc
+
+---
+# airflow-scheduler
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow-scheduler
+  template:
+    metadata:
+      labels:
+        app: airflow-scheduler
+    spec:
+      securityContext:
+        runAsUser: 50000    # Obliga a correr como usuario 50000 (Airflow)
+        runAsGroup: 0       # Opcional: Grupo root (común en Bitnami/Apache)
+        fsGroup: 0
+      serviceAccountName: airflow-scheduler
+      containers:
+      - name: scheduler
+        image: stehedor/airflow-custom:latest
+        command: ["airflow", "scheduler"]
+        envFrom:
+          - configMapRef:
+              name: airflow-env
+        volumeMounts:
+          - name: airflow-filestore
+            mountPath: /opt/airflow
+      volumes:
+        - name: airflow-filestore
+          persistentVolumeClaim:
+            claimName: airflow-filestore-pvc
+
+
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: airflow-scheduler
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: airflow-scheduler-role
+rules:
+- apiGroups: [""]
+  # resources: ["pods", "pods/log"]
+  resources: ["pods", "pods/log", "pods/exec"]
+  verbs: ["create", "get", "list", "watch", "delete"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: airflow-scheduler-binding
+subjects:
+- kind: ServiceAccount
+  name: airflow-scheduler
+roleRef:
+  kind: Role
+  name: airflow-scheduler-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# airflow-init
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: airflow-init
+spec:
+  backoffLimit: 5
+  template:
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+      - name: fix-volume-permissions
+        image: busybox
+        securityContext:
+          runAsUser: 0  # Corre como root
+        command: ["sh", "-c", "chown -R 50000:0 /opt/airflow && chmod -R 775 /opt/airflow"]
+        volumeMounts:
+          - name: airflow-filestore
+            mountPath: /opt/airflow
+      containers:
+      - name: airflow-init
+        image: stehedor/airflow-custom:latest
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            echo "⏳ Waiting for Postgres..."
+            until pg_isready -h airflow-postgres -p 5432 -U airflow; do
+              sleep 3
+            done
+
+            echo "✅ Postgres ready"
+
+            mkdir -p /opt/airflow/{logs,dags,plugins}
+
+            airflow db upgrade
+
+            airflow users create \
+              --username airflow \
+              --password airflow \
+              --firstname Admin \
+              --lastname User \
+              --role Admin \
+              --email admin@example.com || true
+        envFrom:
+          - configMapRef:
+              name: airflow-env
+        volumeMounts:
+          - name: airflow-filestore
+            mountPath: /opt/airflow
+      volumes:
+        - name: airflow-filestore
+          persistentVolumeClaim:
+            claimName: airflow-filestore-pvc
+---
+# Airflow Trigger Job - Lanza el DAG flight_prediction_training
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: airflow-trigger
+  namespace: default
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        app: airflow-trigger
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: airflow-trigger
+        image: curlimages/curl:8.7.1
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            echo "⏳ Esperando a que Airflow Webserver esté listo (http://airflow-webserver:8080/api/v1/health)..."
+            
+            # Esperar hasta que el webserver responda
+            while ! curl -s -f -H "accept: application/json" -o /dev/null http://airflow-webserver:8080/api/v1/health; do
+              echo "   ... reintentando en 5s ..."
+              sleep 5
+            done
+            
+            echo "✅ Webserver detectado. Esperando 10s extra..."
+            sleep 10
+
+            ts=$(date +%s)
+            
+            echo "🔌 Despausando DAG flight_prediction_training..."
+            curl -v -X PATCH http://airflow-webserver:8080/api/v1/dags/flight_prediction_training \
+              -H "Content-Type: application/json" \
+              -u airflow:airflow \
+              -d "{\"is_paused\": false}"
+            
+            echo "🚀 Lanzando DAG flight_prediction_training..."
+            curl -v -X POST http://airflow-webserver:8080/api/v1/dags/flight_prediction_training/dagRuns \
+              -H "Content-Type: application/json" \
+              -u airflow:airflow \
+              -d "{\"dag_run_id\":\"manual__${ts}\",\"conf\":{}}"
+            
+            echo "✅ Trigger completado."
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: init-kafka
+spec:
+  template:
+    spec:
+      serviceAccountName: default
+      restartPolicy: OnFailure
+      containers:
+      - name: init-kafka
+        image: apache/kafka:3.9.0
+        imagePullPolicy: IfNotPresent
+        entrypoint:
+        - /bin/sh
+        - -c
+        command:
+        - |
+          # 1. Esperamos un poco a que Kafka arranque bien (seguridad)
+          echo -e '⏳ Esperando a que Kafka esté listo...'
+          sleep 5 
+          
+          # 2. Creamos el tópico (usamos --if-not-exists para que no falle si reinicias)
+          echo -e '🚀 Creando tópico flight-delay-ml-request...'
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic flight-delay-ml-request --replication-factor 1 --partitions 1
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic flight-delay-ml-response --replication-factor 1 --partitions 1
+          
+          echo -e '✅ Tópico creado. Listando tópicos actuales:'
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list
+      dnsPolicy: ClusterFirst
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: spark-submit-predict
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: spark-submit
+        image: stehedor/spark-custom:latest
+        command:
+          - /opt/spark/bin/spark-submit
+          - --master
+          - spark://spark-master.default.svc.cluster.local:7077
+          # - spark://spark-master:7077
+          - --class
+          - es.upm.dit.ging.predictor.MakePrediction
+          - /opt/airflow/target/scala-2.12/flight_prediction_2.12-0.1.jar
+        volumeMounts:
+        - name: airflow-filestore
+          mountPath: /opt/airflow
+      volumes:
+      - name: airflow-filestore
+        persistentVolumeClaim:
+          claimName: airflow-filestore-pvc
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: python-app
+  labels:
+    app: python-app
+spec:
+  type: LoadBalancer
+  selector:
+    app: python-app
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 5001
+    nodePort: 30501
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: python-app
+  labels:
+    app: python-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: python-app
+  template:
+    metadata:
+      labels:
+        app: python-app
+    spec:
+      containers:
+      - name: python-app
+        image: stehedor/python_app_flight:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 5001
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 5001
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 5001
+          initialDelaySeconds: 10
+          periodSeconds: 5
+
+---
